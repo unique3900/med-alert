@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { firebaseAdminEnv } from '@/lib/env';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { sendAlert } from '@/lib/push/admin';
 import { occurrencesBetween } from '@/lib/domain/occurrences';
@@ -29,6 +30,11 @@ export type DispatchSummary = {
 };
 
 export async function runDispatch(now = new Date()): Promise<DispatchSummary> {
+  // Check the push credentials on every run, not only when something is due.
+  // Otherwise a deployment missing them answers 200 all day and only fails at
+  // the exact moment a dose needs to ring.
+  firebaseAdminEnv();
+
   const db = supabaseAdmin();
 
   const materialized = await materializeDoses(db, now);
