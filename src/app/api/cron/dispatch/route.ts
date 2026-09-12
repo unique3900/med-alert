@@ -34,8 +34,31 @@ async function handle(request: NextRequest) {
     return NextResponse.json({ ok: true, ...summary });
   } catch (error) {
     console.error('dispatch failed', error);
-    return NextResponse.json({ error: 'dispatch failed' }, { status: 500 });
+
+    // The caller already proved it holds CRON_SECRET, so the real reason is safe
+    // to return. Without it a misconfigured deployment fails silently every
+    // minute with nothing but a 500 to go on.
+    return NextResponse.json(
+      {
+        error: 'dispatch failed',
+        reason: error instanceof Error ? error.message : String(error),
+        env: missingServerEnv(),
+      },
+      { status: 500 },
+    );
   }
+}
+
+function missingServerEnv() {
+  const required = [
+    'NEXT_PUBLIC_SUPABASE_URL',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'FIREBASE_PROJECT_ID',
+    'FIREBASE_CLIENT_EMAIL',
+    'FIREBASE_PRIVATE_KEY',
+  ];
+  const missing = required.filter((name) => !process.env[name]);
+  return missing.length > 0 ? { missing } : 'all present';
 }
 
 export const GET = handle;
