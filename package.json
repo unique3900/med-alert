@@ -1,0 +1,46 @@
+{
+  "name": "med-alert",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "icons": "node scripts/generate-icons.mjs",
+    "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
+    "db:bootstrap": "node --env-file=.env.local scripts/bootstrap-admin.mjs",
+    "dispatch:now": "node --env-file=.env.local scripts/dispatch-now.mjs"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.116.0",
+    "clsx": "^2.1.1",
+    "firebase": "^12.19.0",
+    "firebase-admin": "^14.4.0",
+    "lucide-react": "^1.45.0",
+    "next": "16.3.5",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tailwind-merge": "^3.6.0",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^24.13.4",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.5",
+    "pg": "^8.23.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=20.9"
+  }
+}
