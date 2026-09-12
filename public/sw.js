@@ -62,11 +62,14 @@ if (config) {
       badge: '/icons/badge-72.png',
       vibrate: [700, 200, 700, 200, 700, 200, 700],
       timestamp: Date.parse(data.dueAt || '') || Date.now(),
-      data: { doseId: data.doseId, attempt },
-      actions: [
-        { action: 'taken', title: 'Taken' },
-        { action: 'snooze', title: 'Snooze 10m' },
-      ],
+      data: { doseId: data.doseId, attempt, test: data.test === '1' },
+      actions:
+        data.test === '1'
+          ? []
+          : [
+              { action: 'taken', title: 'Taken' },
+              { action: 'snooze', title: 'Snooze 10m' },
+            ],
     });
   });
 }
@@ -95,8 +98,13 @@ async function focusApp(doseId) {
 }
 
 self.addEventListener('notificationclick', (event) => {
-  const { doseId } = event.notification.data || {};
+  const { doseId, test } = event.notification.data || {};
   event.notification.close();
+
+  if (test) {
+    event.waitUntil(focusApp(null));
+    return;
+  }
 
   if (event.action === 'taken' || event.action === 'snooze') {
     event.waitUntil(resolveDose(doseId, event.action));

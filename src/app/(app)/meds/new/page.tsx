@@ -10,7 +10,7 @@ import type { Profile } from '@/lib/db/types';
 export const metadata: Metadata = { title: 'New medication' };
 export const dynamic = 'force-dynamic';
 
-export default async function NewMedicationPage() {
+export default async function NewMedicationPage({ searchParams }: PageProps<'/meds/new'>) {
   const session = await requireSession();
   const supabase = await supabaseServer();
 
@@ -23,6 +23,12 @@ export default async function NewMedicationPage() {
   const people = session.isAdmin
     ? (data ?? [])
     : (data ?? []).filter((person) => person.id === session.userId);
+
+  // Carried over from the member filter on /meds, so "Add" while viewing one
+  // person starts on that person rather than resetting to yourself.
+  const params = await searchParams;
+  const requested = typeof params.person === 'string' ? params.person : undefined;
+  const preselected = people.some((person) => person.id === requested) ? requested! : session.userId;
 
   return (
     <div className="space-y-6">
@@ -37,7 +43,7 @@ export default async function NewMedicationPage() {
         canReassign={session.isAdmin}
         people={people}
         values={{
-          profileId: session.userId,
+          profileId: preselected,
           name: '',
           strength: '',
           form: '',

@@ -47,7 +47,7 @@ export default async function MedicationsPage({ searchParams }: PageProps<'/meds
           <h1 className="text-2xl font-semibold tracking-tight">Medications</h1>
           <p className="text-sm text-ink-muted">Every course your household is on, and when it rings.</p>
         </div>
-        <Link href="/meds/new" className={buttonClass('primary', 'md')}>
+        <Link href={person ? `/meds/new?person=${person}` : '/meds/new'} className={buttonClass('primary', 'md')}>
           <Plus className="size-4" />
           Add
         </Link>
@@ -60,7 +60,7 @@ export default async function MedicationsPage({ searchParams }: PageProps<'/meds
           title={person ? "Nothing for this person yet" : "No medications yet"}
           description="Add the first one and Med Alert will start ringing at the times you set."
           action={
-            <Link href="/meds/new" className={buttonClass('primary', 'sm')}>
+            <Link href={person ? `/meds/new?person=${person}` : '/meds/new'} className={buttonClass('primary', 'sm')}>
               Add a medication
             </Link>
           }

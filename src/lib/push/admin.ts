@@ -19,6 +19,8 @@ export type AlertPayload = {
   person: string;
   dueAt: string;
   attempt: number;
+  /** A manual check rather than a real dose: no Taken / Snooze actions. */
+  test?: boolean;
 };
 
 export type SendResult = {
@@ -39,6 +41,7 @@ export async function sendAlert(tokens: string[], payload: AlertPayload): Promis
       person: payload.person,
       dueAt: payload.dueAt,
       attempt: String(payload.attempt),
+      test: payload.test ? '1' : '',
     },
     webpush: {
       headers: { Urgency: 'high', TTL: '900' },
