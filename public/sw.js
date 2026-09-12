@@ -34,19 +34,9 @@ self.addEventListener('fetch', (event) => {
   }
 });
 
-function firebaseConfig() {
-  // searchParams already decodes; the client encodes with encodeURIComponent
-  // rather than base64 so non-ASCII cannot break registration.
-  const raw = new URL(self.location.href).searchParams.get('config');
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
+importScripts('/sw-config.js');
 
-const config = firebaseConfig();
+const config = self.__FIREBASE_CONFIG__ || null;
 
 if (config) {
   importScripts(`https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-app-compat.js`);

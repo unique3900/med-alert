@@ -37,9 +37,7 @@ export async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return null;
   assertUsableConfig();
 
-  // encodeURIComponent, not btoa: btoa throws on anything outside Latin1.
-  const config = encodeURIComponent(JSON.stringify(publicEnv.firebase));
-  return navigator.serviceWorker.register(`/sw.js?config=${config}`, { scope: '/' });
+  return navigator.serviceWorker.register('/sw.js', { scope: '/' });
 }
 
 export async function pushState(): Promise<PushState> {
@@ -75,14 +73,29 @@ export async function enablePush(label?: string) {
   if (!registration) throw new Error('Service workers are unavailable in this browser.');
   await navigator.serviceWorker.ready;
 
-  let token: string;
-  try {
-    token = await getToken(getMessaging(firebaseApp()), {
+  const mint = () =>
+    getToken(getMessaging(firebaseApp()), {
       vapidKey: publicEnv.vapidKey,
       serviceWorkerRegistration: registration,
     });
-  } catch (cause) {
-    throw new Error(`Firebase could not issue a push token: ${reason(cause)}`);
+
+  let token: string;
+  try {
+    token = await mint();
+  } catch (first) {
+    // The push service rejects a new key while an old subscription is live, which
+    // is what a previous registration leaves behind. Drop it and ask once more.
+    const existing = await registration.pushManager.getSubscription().catch(() => null);
+    if (!existing) throw new Error(`Firebase could not issue a push token: ${reason(first)}`);
+
+    await existing.unsubscribe().catch(() => {});
+    try {
+      token = await mint();
+    } catch (second) {
+      throw new Error(
+        `Firebase could not issue a push token, even after clearing the old subscription: ${reason(second)}`,
+      );
+    }
   }
 
   if (!token) throw new Error('Firebase returned an empty push token.');
