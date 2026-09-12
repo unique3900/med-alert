@@ -30,7 +30,32 @@ export type DispatchSummary = {
   abandoned: number;
   alerted: number;
   delivered: number;
+  /** Non-fatal problems. Alerting still ran. */
+  degraded?: string[];
 };
+
+function describe(cause: unknown) {
+  if (cause instanceof Error) return cause.message;
+  if (cause && typeof cause === 'object') {
+    const { message, code } = cause as { message?: string; code?: string };
+    if (message) return code ? `${message} (${code})` : message;
+  }
+  return String(cause);
+}
+
+/** Supabase occasionally answers a healthy query with a gateway timeout. */
+async function withRetry<T>(label: string, attempt: () => Promise<T>): Promise<T> {
+  try {
+    return await attempt();
+  } catch (first) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    try {
+      return await attempt();
+    } catch {
+      throw new Error(`${label}: ${describe(first)}`);
+    }
+  }
+}
 
 export async function runDispatch(now = new Date()): Promise<DispatchSummary> {
   // Check the push credentials on every run, not only when something is due.
@@ -39,13 +64,38 @@ export async function runDispatch(now = new Date()): Promise<DispatchSummary> {
   firebaseAdminEnv();
 
   const db = supabaseAdmin();
+  const degraded: string[] = [];
 
-  const materialized = await materializeDoses(db, now);
-  const open = await loadOpenDoses(db, now);
-  const { superseded, abandoned, remaining } = await closeStaleDoses(db, open, now);
+  // Creating future dose rows is not allowed to stop existing ones ringing: a
+  // transient failure here must not cost the minute an alarm was due.
+  let materialized = 0;
+  try {
+    materialized = await withRetry('materialise', () => materializeDoses(db, now));
+  } catch (cause) {
+    degraded.push(describe(cause));
+  }
+
+  const open = await withRetry('load due doses', () => loadOpenDoses(db, now));
+
+  let superseded = 0;
+  let abandoned = 0;
+  let remaining = open;
+  try {
+    ({ superseded, abandoned, remaining } = await closeStaleDoses(db, open, now));
+  } catch (cause) {
+    degraded.push(describe(cause));
+  }
+
   const { alerted, delivered } = await alertDueDoses(db, remaining, now);
 
-  return { materialized, superseded, abandoned, alerted, delivered };
+  return {
+    materialized,
+    superseded,
+    abandoned,
+    alerted,
+    delivered,
+    ...(degraded.length > 0 ? { degraded } : {}),
+  };
 }
 
 const SCHEDULE_SELECT =
