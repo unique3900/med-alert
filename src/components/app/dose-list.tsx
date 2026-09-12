@@ -33,13 +33,27 @@ export function DoseList({
   emptyDescription?: string;
 }) {
   const router = useRouter();
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [pending, setPending] = useState<Record<string, DoseOutcome>>({});
   const [failure, setFailure] = useState<{ id: string; message: string } | null>(null);
+  const [rendered, setRendered] = useState(doses);
   const [, startTransition] = useTransition();
 
+  // Server data is the truth; drop the optimistic layer as soon as fresh data lands.
+  if (doses !== rendered) {
+    setRendered(doses);
+    setPending({});
+  }
+
   async function act(id: string, action: 'taken' | 'skipped') {
-    setBusyId(id);
     setFailure(null);
+    setPending((current) => ({ ...current, [id]: action }));
+
+    const revert = () =>
+      setPending((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
 
     try {
       const response = await fetch(`/api/doses/${id}`, {
@@ -50,15 +64,15 @@ export function DoseList({
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
+        revert();
         setFailure({ id, message: body.error ?? 'Could not update this dose.' });
         return;
       }
 
       startTransition(() => router.refresh());
     } catch {
+      revert();
       setFailure({ id, message: 'No connection. The dose has not been recorded.' });
-    } finally {
-      setBusyId(null);
     }
   }
 
@@ -69,9 +83,10 @@ export function DoseList({
   return (
     <ol className="space-y-2">
       {doses.map((dose) => {
-        const outcome = OUTCOME[dose.outcome];
-        const open = dose.outcome === 'upcoming' || dose.outcome === 'overdue';
-        const settled = dose.outcome === 'taken' || dose.outcome === 'skipped';
+        const shown = pending[dose.id] ?? dose.outcome;
+        const outcome = OUTCOME[shown];
+        const open = shown === 'upcoming' || shown === 'overdue';
+        const settled = shown === 'taken' || shown === 'skipped';
 
         return (
           <li
@@ -79,7 +94,7 @@ export function DoseList({
             className={cn(
               'panel flex flex-wrap items-center gap-3.5 p-3.5 transition-opacity',
               settled && 'opacity-65',
-              dose.outcome === 'overdue' && 'border-danger/40',
+              shown === 'overdue' && 'border-danger/40',
             )}
           >
             <div className="flex w-14 shrink-0 flex-col items-center">
@@ -87,7 +102,7 @@ export function DoseList({
               <span
                 className={cn(
                   'mt-1 text-[10px] tracking-wide uppercase',
-                  dose.outcome === 'overdue' ? 'text-danger' : 'text-ink-muted',
+                  shown === 'overdue' ? 'text-danger' : 'text-ink-muted',
                 )}
               >
                 {outcome.label}
@@ -104,7 +119,7 @@ export function DoseList({
               <p className="mt-0.5 truncate text-xs text-ink-muted">
                 {showPerson ? `${dose.personName} · ` : ''}
                 {dose.detail}
-                {dose.outcome === 'late' ? ` · ${humanizeMinutes(dose.minutesLate)} late` : ''}
+                {shown === 'late' ? ` · ${humanizeMinutes(dose.minutesLate)} late` : ''}
               </p>
               {dose.instructions ? (
                 <p className="mt-1 truncate text-xs text-ink-muted italic">{dose.instructions}</p>
@@ -119,7 +134,6 @@ export function DoseList({
                   size="sm"
                   variant="success"
                   aria-label="Mark as taken"
-                  disabled={busyId === dose.id}
                   onClick={() => act(dose.id, 'taken')}
                 >
                   <Check className="size-4" />
@@ -128,7 +142,6 @@ export function DoseList({
                   size="sm"
                   variant="ghost"
                   aria-label="Skip this dose"
-                  disabled={busyId === dose.id}
                   onClick={() => act(dose.id, 'skipped')}
                 >
                   <X className="size-4" />
@@ -136,7 +149,7 @@ export function DoseList({
               </div>
             ) : (
               <Badge tone={outcome.tone} className="shrink-0">
-                {dose.outcome === 'taken' || dose.outcome === 'late' ? (
+                {shown === 'taken' || shown === 'late' ? (
                   <Check className="size-3" />
                 ) : (
                   <Clock className="size-3" />
