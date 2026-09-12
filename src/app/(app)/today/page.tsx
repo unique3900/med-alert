@@ -30,10 +30,9 @@ export default async function TodayPage() {
 
   const showPerson = (memberCount ?? 1) > 1;
 
-  // Alarms go to the devices of whoever the medication is *for*. An account with
-  // doses and no armed phone is the one failure the app cannot detect at run time.
+  // Alarms reach the devices of whoever the medication is *for*, so a person
+  // with doses and no armed phone is the quietest way this app can fail.
   const ownDoses = doses.filter((dose) => dose.profile_id === session.userId).length;
-  const unreachable = ownDoses > 0 && (deviceCount ?? 0) === 0;
   const today = summarize(doses, now);
 
   const upcoming = doses.find((dose) => doseOutcome(dose, now) === 'upcoming');
@@ -48,24 +47,11 @@ export default async function TodayPage() {
         </h1>
       </header>
 
-      <PushGate deviceLabel={session.profile.full_name} />
-
-      {unreachable ? (
-        <div className="panel flex items-start gap-3.5 border-warn/40 p-4">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-warn-soft text-warn">
-            <AlertTriangle className="size-5" />
-          </span>
-          <div className="space-y-1 text-sm">
-            <p className="font-medium">No phone is armed for this account</p>
-            <p className="text-ink-muted">
-              {ownDoses === 1 ? 'A dose is' : `${ownDoses} doses are`} scheduled for{' '}
-              {session.profile.full_name}, but no device is registered, so nothing will ring. Open Med Alert on
-              that phone, sign in as this account, and allow notifications — each person is alerted on their own
-              devices.
-            </p>
-          </div>
-        </div>
-      ) : null}
+      <PushGate
+        deviceLabel={session.profile.full_name}
+        armed={(deviceCount ?? 0) > 0}
+        scheduledDoses={ownDoses}
+      />
 
       {owed.length > 0 ? (
         <section className="space-y-3">

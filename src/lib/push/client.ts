@@ -29,22 +29,40 @@ export async function pushState(): Promise<PushState> {
 }
 
 /** Asks for permission, mints an FCM token and stores it against the signed-in profile. */
+function reason(cause: unknown) {
+  if (cause instanceof Error) {
+    const code = (cause as { code?: string }).code;
+    return code ? `${cause.message} (${code})` : cause.message;
+  }
+  return String(cause);
+}
+
 export async function enablePush(label?: string) {
   if (!pushConfigured) throw new Error('Push is not configured for this deployment.');
 
   const permission = await Notification.requestPermission();
-  if (permission !== 'granted') throw new Error('Notification permission was not granted.');
+  if (permission !== 'granted') throw new Error(`Notification permission is "${permission}", not "granted".`);
 
-  const registration = await registerServiceWorker();
+  let registration: ServiceWorkerRegistration | null;
+  try {
+    registration = await registerServiceWorker();
+  } catch (cause) {
+    throw new Error(`The service worker failed to register: ${reason(cause)}`);
+  }
   if (!registration) throw new Error('Service workers are unavailable in this browser.');
   await navigator.serviceWorker.ready;
 
-  const token = await getToken(getMessaging(firebaseApp()), {
-    vapidKey: publicEnv.vapidKey,
-    serviceWorkerRegistration: registration,
-  });
+  let token: string;
+  try {
+    token = await getToken(getMessaging(firebaseApp()), {
+      vapidKey: publicEnv.vapidKey,
+      serviceWorkerRegistration: registration,
+    });
+  } catch (cause) {
+    throw new Error(`Firebase could not issue a push token: ${reason(cause)}`);
+  }
 
-  if (!token) throw new Error('Could not obtain a push token.');
+  if (!token) throw new Error('Firebase returned an empty push token.');
 
   const response = await fetch('/api/devices', {
     method: 'POST',
@@ -52,7 +70,11 @@ export async function enablePush(label?: string) {
     body: JSON.stringify({ token, label, userAgent: navigator.userAgent }),
   });
 
-  if (!response.ok) throw new Error('Could not save this device.');
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(`Saving the device failed (HTTP ${response.status}): ${body.error ?? 'no detail'}`);
+  }
+
   return token;
 }
 

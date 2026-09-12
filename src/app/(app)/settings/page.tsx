@@ -50,7 +50,7 @@ export default async function SettingsPage() {
           title="Alarms on this device"
           description="Each phone has to be armed once. Install Med Alert to the Home Screen for the loudest, most reliable alerts."
         />
-        <PushGate deviceLabel={session.profile.full_name} />
+        <PushGate deviceLabel={session.profile.full_name} armed={devices.length > 0} />
         <DeviceList devices={devices} />
       </Panel>
 
