@@ -39,14 +39,21 @@ async function handle(request: NextRequest) {
     // to return. Without it a misconfigured deployment fails silently every
     // minute with nothing but a 500 to go on.
     return NextResponse.json(
-      {
-        error: 'dispatch failed',
-        reason: error instanceof Error ? error.message : String(error),
-        env: missingServerEnv(),
-      },
+      { error: 'dispatch failed', reason: describe(error), env: missingServerEnv() },
       { status: 500 },
     );
   }
+}
+
+/** Supabase rejects with a plain object, not an Error, so String() loses everything. */
+function describe(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object') {
+    const { message, code, details, hint } = error as Record<string, unknown>;
+    if (message ?? code) return { message, code, details, hint };
+    return JSON.stringify(error);
+  }
+  return String(error);
 }
 
 function missingServerEnv() {
