@@ -13,10 +13,33 @@ function firebaseApp() {
   return existing ?? initializeApp(publicEnv.firebase, APP_NAME);
 }
 
+/**
+ * Catches the easy mistake of pasting a masked value out of a dashboard, which
+ * otherwise surfaces as an unrelated encoding error three steps later.
+ */
+function assertUsableConfig() {
+  const entries = Object.entries({ ...publicEnv.firebase, vapidKey: publicEnv.vapidKey });
+
+  for (const [name, value] of entries) {
+    if (!value) throw new Error(`Firebase config is missing "${name}".`);
+    if (/[^\x20-\x7e]/.test(value)) {
+      const masked = /[•·‧●*]/.test(value);
+      throw new Error(
+        masked
+          ? `Firebase config "${name}" contains masked characters — the hidden value was copied instead of the real one. Reveal it in the Firebase console and set it again.`
+          : `Firebase config "${name}" contains characters that are not plain ASCII.`,
+      );
+    }
+  }
+}
+
 export async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return null;
-  const config = btoa(JSON.stringify(publicEnv.firebase));
-  return navigator.serviceWorker.register(`/sw.js?config=${encodeURIComponent(config)}`, { scope: '/' });
+  assertUsableConfig();
+
+  // encodeURIComponent, not btoa: btoa throws on anything outside Latin1.
+  const config = encodeURIComponent(JSON.stringify(publicEnv.firebase));
+  return navigator.serviceWorker.register(`/sw.js?config=${config}`, { scope: '/' });
 }
 
 export async function pushState(): Promise<PushState> {

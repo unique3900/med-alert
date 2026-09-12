@@ -35,10 +35,12 @@ self.addEventListener('fetch', (event) => {
 });
 
 function firebaseConfig() {
-  const encoded = new URL(self.location.href).searchParams.get('config');
-  if (!encoded) return null;
+  // searchParams already decodes; the client encodes with encodeURIComponent
+  // rather than base64 so non-ASCII cannot break registration.
+  const raw = new URL(self.location.href).searchParams.get('config');
+  if (!raw) return null;
   try {
-    return JSON.parse(atob(decodeURIComponent(encoded)));
+    return JSON.parse(raw);
   } catch {
     return null;
   }

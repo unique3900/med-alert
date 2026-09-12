@@ -3,18 +3,20 @@ function required(name: string, value: string | undefined): string {
   return value;
 }
 
+const clean = (value: string | undefined) => (value ?? '').trim();
+
 export const publicEnv = {
-  supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? '',
-  supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '',
+  supabaseUrl: clean(process.env.NEXT_PUBLIC_SUPABASE_URL),
+  supabaseAnonKey: clean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
   firebase: {
-    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? '',
-    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? '',
-    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? '',
-    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ?? '',
-    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '',
-    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID ?? '',
+    apiKey: clean(process.env.NEXT_PUBLIC_FIREBASE_API_KEY),
+    authDomain: clean(process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN),
+    projectId: clean(process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID),
+    storageBucket: clean(process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET),
+    messagingSenderId: clean(process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID),
+    appId: clean(process.env.NEXT_PUBLIC_FIREBASE_APP_ID),
   },
-  vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY ?? '',
+  vapidKey: clean(process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY),
 };
 
 export const pushConfigured = Boolean(
