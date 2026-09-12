@@ -31,10 +31,48 @@ export function serverEnv() {
   };
 }
 
+/**
+ * A PEM has to survive being pasted into a dashboard field. Depending on how it
+ * got there it arrives quoted, with literal backslash-n, with real newlines,
+ * with CRLF, or base64-encoded whole. Accept all of those rather than fail at
+ * the moment an alarm is due.
+ */
+export function normalizePrivateKey(raw: string): string {
+  let key = raw.trim();
+
+  const wrappedIn = (mark: string) => key.length > 1 && key.startsWith(mark) && key.endsWith(mark);
+  if (wrappedIn('"') || wrappedIn("'")) key = key.slice(1, -1);
+
+  if (!key.includes('BEGIN')) {
+    try {
+      const decoded = Buffer.from(key, 'base64').toString('utf8');
+      if (decoded.includes('BEGIN')) key = decoded;
+    } catch {
+      // Not base64 either; the shape check below reports it.
+    }
+  }
+
+  key = key
+    .replace(/\\r/g, '')
+    .replace(/\\n/g, '\n')
+    .replace(/\r/g, '')
+    .trim();
+
+  const pem = /^-----BEGIN [A-Z ]*PRIVATE KEY-----\n[\s\S]+\n-----END [A-Z ]*PRIVATE KEY-----$/;
+  if (!pem.test(key)) {
+    throw new Error(
+      `FIREBASE_PRIVATE_KEY is not a PEM key (${key.length} chars, starts "${key.slice(0, 12)}"). ` +
+        'Use the private_key field from the service-account JSON, unquoted.',
+    );
+  }
+
+  return `${key}\n`;
+}
+
 export function firebaseAdminEnv() {
   return {
     projectId: required('FIREBASE_PROJECT_ID', process.env.FIREBASE_PROJECT_ID),
     clientEmail: required('FIREBASE_CLIENT_EMAIL', process.env.FIREBASE_CLIENT_EMAIL),
-    privateKey: required('FIREBASE_PRIVATE_KEY', process.env.FIREBASE_PRIVATE_KEY).replace(/\n/g, '\n'),
+    privateKey: normalizePrivateKey(required('FIREBASE_PRIVATE_KEY', process.env.FIREBASE_PRIVATE_KEY)),
   };
 }
