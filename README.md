@@ -18,10 +18,10 @@ Supabase pg_cron (every minute)
 POST /api/cron/dispatch          ← guarded by CRON_SECRET
         │
         ├─ materialise dose rows for the next 2 hours from each active schedule
-        ├─ mark unresolved doses older than 45 minutes as missed
+        ├─ close doses superseded by the next dose of the same medication
         └─ for every dose now due and still open:
               send an FCM data message to all of that person's devices
-              re-send every 2 minutes, up to 10 times, until it is resolved
+              keep re-sending, backing off, until it is taken, skipped or snoozed
         ▼
 public/sw.js  → notification (requireInteraction + vibration + Taken / Snooze actions)
 app open      → full-screen alarm overlay with a looping Web Audio siren
@@ -134,8 +134,17 @@ the platform allows:
 
 - the notification is posted with `requireInteraction`, so it stays on screen until it is answered;
 - a long vibration pattern fires with every alert;
-- the dispatcher repeats the alert every 2 minutes, up to 10 times, until someone taps **Taken** or
-  **Snooze** — an unanswered dose keeps buzzing for twenty minutes;
+- **the dispatcher never gives up on its own.** A dose keeps alerting until somebody taps **Taken**,
+  **Skip** or **Snooze**. The cadence backs off as it ages so a forgotten dose stays loud without
+  buzzing every two minutes all day:
+
+  | Overdue by | Alert every |
+  |---|---|
+  | 0–30 min | 2 min |
+  | 30 min – 2 h | 5 min |
+  | 2–6 h | 15 min |
+  | over 6 h | 30 min |
+
 - when the app is in the foreground, a full-screen overlay plays a looping siren through Web Audio.
 
 Platform notes:
@@ -145,6 +154,34 @@ Platform notes:
   then allow notifications from inside the installed app.
 - The notification sound is chosen by the operating system. Put the phone on a loud profile and, on
   Android, set the Med Alert notification channel to an alarm-style sound.
+
+### When a dose finally closes
+
+Only two things end an unanswered dose, and both are deliberate:
+
+- **Superseded** — the next dose of the *same* medication falls due. If the 08:00 tablet was never
+  taken and it is now 20:00, the 08:00 dose is recorded as missed rather than owed twice over.
+- **Backstop** — 48 hours pass (`ALERT_POLICY.stopAfterHours`). This only ever catches medications
+  taken less often than every other day; a daily course is closed by the supersede rule first.
+
+Anything else is resolved by a person, and a dose marked taken long after it was due is recorded as
+**taken late**, with the delay stored — not silently counted as on time. The threshold is
+`ALERT_POLICY.lateAfterMinutes`, currently 15 minutes. All of this lives in
+`src/lib/domain/alerting.ts` and is covered by `tests/alerting.test.ts`.
+
+## The monthly log
+
+**History** shows one month at a time, filterable by person:
+
+- tiles for **on time**, **late**, **missed**, **skipped** and an adherence percentage;
+- a calendar where each day carries a dot per dose, coloured by outcome;
+- tap any day for the full list, including how late a late dose was.
+
+Adherence is doses taken — on time or late — as a share of those that actually came due. Skipped
+doses and doses still in the future are excluded, so the number never flatters itself.
+
+Doses still owed from previous days also surface at the top of **Today**, because they are still
+ringing.
 
 ---
 
@@ -156,6 +193,7 @@ src/
     (auth)/login         sign-in
     (app)/today          the day's doses, next-dose card, adherence
     (app)/meds           medications and their schedules
+    (app)/history        the monthly log: calendar, outcomes, adherence
     (app)/family         admin: members, roles, device status
     (app)/settings       profile, password, household, registered devices
     api/cron/dispatch    the every-minute dispatcher
@@ -164,9 +202,11 @@ src/
     actions/             server actions for every mutation
   lib/
     domain/occurrences   schedule -> instants (DST-correct)
-    domain/dispatch      materialise, expire, alert
+    domain/alerting      retry cadence, supersede and lateness rules
+    domain/dispatch      materialise, close, alert
     domain/doses         day queries and dose resolution
     time/zone            Intl-based zoned time helpers
+    time/calendar        month and day key arithmetic
     push/                FCM client and admin
     supabase/            browser, server, service-role and session clients
   components/ui          buttons, fields, panels

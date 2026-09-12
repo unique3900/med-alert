@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowRight, CircleCheckBig } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CircleCheckBig } from 'lucide-react';
 import { requireSession } from '@/lib/domain/session';
 import { supabaseServer } from '@/lib/supabase/server';
-import { dosesForDay, recentAdherence } from '@/lib/domain/doses';
+import { dosesForDay, doseOutcome, outstandingBefore, recentAdherence, summarize } from '@/lib/domain/doses';
+import { toDoseView } from '@/lib/domain/views';
 import { formatDayLong, formatTime } from '@/lib/time/format';
 import { PushGate } from '@/components/app/push-gate';
 import { Countdown } from '@/components/app/next-dose';
-import { DoseList, type DoseView } from '@/components/app/dose-list';
+import { DoseList } from '@/components/app/dose-list';
 import { Panel } from '@/components/ui/panel';
 import { buttonClass } from '@/components/ui/button';
 
@@ -19,31 +20,18 @@ export default async function TodayPage() {
   const supabase = await supabaseServer();
   const now = new Date();
 
-  const [doses, adherence, { count: memberCount }] = await Promise.all([
+  const [doses, owed, adherence, { count: memberCount }] = await Promise.all([
     dosesForDay(supabase, { timezone: session.timezone, reference: now }),
+    outstandingBefore(supabase, { timezone: session.timezone, reference: now }),
     recentAdherence(supabase, { days: 7 }),
     supabase.from('profiles').select('id', { count: 'exact', head: true }),
   ]);
 
   const showPerson = (memberCount ?? 1) > 1;
+  const today = summarize(doses, now);
 
-  const views: DoseView[] = doses.map((dose) => ({
-    id: dose.id,
-    timeLabel: formatTime(dose.due_at, session.timezone),
-    status: dose.status,
-    medication: dose.medications.name,
-    detail: [dose.medications.strength, dose.medications.form].filter(Boolean).join(' ') || 'Scheduled dose',
-    instructions: dose.medications.instructions,
-    accent: dose.medications.accent,
-    personName: dose.profiles.full_name,
-    personId: dose.profiles.id,
-    isPast: Date.parse(dose.due_at) < now.getTime(),
-  }));
-
-  const upcoming = doses.find(
-    (dose) => (dose.status === 'pending' || dose.status === 'notified') && Date.parse(dose.due_at) >= now.getTime(),
-  );
-  const takenToday = doses.filter((dose) => dose.status === 'taken').length;
+  const upcoming = doses.find((dose) => doseOutcome(dose, now) === 'upcoming');
+  const consumed = today.taken + today.late;
 
   return (
     <div className="space-y-6">
@@ -55,6 +43,21 @@ export default async function TodayPage() {
       </header>
 
       <PushGate deviceLabel={session.profile.full_name} />
+
+      {owed.length > 0 ? (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 text-danger">
+            <AlertTriangle className="size-4" />
+            <h2 className="text-sm font-semibold tracking-wide uppercase">
+              Still owed from earlier
+            </h2>
+          </div>
+          <p className="text-sm text-ink-muted">
+            These keep alerting until they are marked. Mark one as taken even if it is late — the log records how late.
+          </p>
+          <DoseList doses={owed.map((dose) => toDoseView(dose, session.timezone, now))} showPerson={showPerson} />
+        </section>
+      ) : null}
 
       <Panel className="overflow-hidden">
         <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -86,14 +89,14 @@ export default async function TodayPage() {
             <div>
               <dt className="text-xs tracking-wide text-ink-muted uppercase">Taken today</dt>
               <dd className="font-mono text-xl font-semibold tabular-nums">
-                {takenToday}
-                <span className="text-ink-muted">/{doses.length}</span>
+                {consumed}
+                <span className="text-ink-muted">/{today.total}</span>
               </dd>
             </div>
             <div>
               <dt className="text-xs tracking-wide text-ink-muted uppercase">7-day rate</dt>
               <dd className="font-mono text-xl font-semibold tabular-nums">
-                {adherence.rate === null ? '—' : `${Math.round(adherence.rate * 100)}%`}
+                {adherence.adherence === null ? '—' : `${Math.round(adherence.adherence * 100)}%`}
               </dd>
             </div>
           </dl>
@@ -108,7 +111,7 @@ export default async function TodayPage() {
             <ArrowRight className="size-4" />
           </Link>
         </div>
-        <DoseList doses={views} showPerson={showPerson} />
+        <DoseList doses={doses.map((dose) => toDoseView(dose, session.timezone, now))} showPerson={showPerson} />
       </section>
     </div>
   );

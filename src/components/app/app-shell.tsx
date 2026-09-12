@@ -3,19 +3,20 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { CalendarCheck, LogOut, Pill, Settings, Users } from 'lucide-react';
+import { CalendarCheck, History, LogOut, Pill, Settings, Users } from 'lucide-react';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { primeAlarm } from '@/lib/alarm';
 import { Avatar } from '@/components/ui/panel';
 import { cn } from '@/lib/utils';
 
-type NavItem = { href: string; label: string; icon: typeof Pill; adminOnly?: boolean };
+type NavItem = { href: string; label: string; short: string; icon: typeof Pill; adminOnly?: boolean };
 
 const NAV: NavItem[] = [
-  { href: '/today', label: 'Today', icon: CalendarCheck },
-  { href: '/meds', label: 'Medications', icon: Pill },
-  { href: '/family', label: 'Family', icon: Users, adminOnly: true },
-  { href: '/settings', label: 'Settings', icon: Settings },
+  { href: '/today', label: 'Today', short: 'Today', icon: CalendarCheck },
+  { href: '/meds', label: 'Medications', short: 'Meds', icon: Pill },
+  { href: '/history', label: 'History', short: 'Log', icon: History },
+  { href: '/family', label: 'Family', short: 'Family', icon: Users, adminOnly: true },
+  { href: '/settings', label: 'Settings', short: 'Settings', icon: Settings },
 ];
 
 export function AppShell({
@@ -101,7 +102,7 @@ export function AppShell({
                 )}
               >
                 <Icon className={cn('size-5', active && 'drop-shadow-[0_0_10px_var(--ring)]')} />
-                {item.label}
+                {item.short}
               </Link>
             );
           })}

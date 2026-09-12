@@ -3,21 +3,9 @@ import 'server-only';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { sendAlert } from '@/lib/push/admin';
 import { occurrencesBetween } from '@/lib/domain/occurrences';
+import { ALERT_POLICY, isAbandoned, shouldAlert, supersededIds } from '@/lib/domain/alerting';
 import { supportedTimeZone } from '@/lib/time/zone';
 import type { Dose, Medication, Profile, Schedule } from '@/lib/db/types';
-
-export const ALERT_POLICY = {
-  /** How far ahead dose rows are created. */
-  horizonMinutes: 120,
-  /** A dose is alerted no earlier than this many seconds before it is due. */
-  leadSeconds: 30,
-  /** Re-alert cadence while a dose stays unresolved. */
-  repeatMinutes: 2,
-  /** Stop after this many alerts for one dose. */
-  maxAlerts: 10,
-  /** Unresolved this long past due becomes a missed dose. */
-  graceMinutes: 45,
-} as const;
 
 type Db = ReturnType<typeof supabaseAdmin>;
 
@@ -27,14 +15,15 @@ type ScheduleContext = Schedule & {
   };
 };
 
-type DueDose = Pick<Dose, 'id' | 'profile_id' | 'due_at' | 'alert_count'> & {
+type OpenDose = Pick<Dose, 'id' | 'profile_id' | 'medication_id' | 'due_at' | 'alert_count' | 'last_alert_at'> & {
   medications: Pick<Medication, 'name' | 'strength' | 'form'>;
   profiles: Pick<Profile, 'full_name'>;
 };
 
 export type DispatchSummary = {
   materialized: number;
-  missed: number;
+  superseded: number;
+  abandoned: number;
   alerted: number;
   delivered: number;
 };
@@ -43,10 +32,11 @@ export async function runDispatch(now = new Date()): Promise<DispatchSummary> {
   const db = supabaseAdmin();
 
   const materialized = await materializeDoses(db, now);
-  const missed = await expireOverdueDoses(db, now);
-  const { alerted, delivered } = await alertDueDoses(db, now);
+  const open = await loadOpenDoses(db, now);
+  const { superseded, abandoned, remaining } = await closeStaleDoses(db, open, now);
+  const { alerted, delivered } = await alertDueDoses(db, remaining, now);
 
-  return { materialized, missed, alerted, delivered };
+  return { materialized, superseded, abandoned, alerted, delivered };
 }
 
 const SCHEDULE_SELECT =
@@ -87,46 +77,64 @@ async function materializeDoses(db: Db, now: Date) {
   return rows.length;
 }
 
-async function expireOverdueDoses(db: Db, now: Date) {
-  const cutoff = new Date(now.getTime() - ALERT_POLICY.graceMinutes * 60_000).toISOString();
-
-  const { data, error } = await db
-    .from('doses')
-    .update({ status: 'missed', resolved_at: now.toISOString() })
-    .in('status', ['pending', 'notified'])
-    .lt('due_at', cutoff)
-    .select('id');
-
-  if (error) throw error;
-  return data?.length ?? 0;
-}
-
-async function alertDueDoses(db: Db, now: Date) {
+/**
+ * Every dose that is due and still unresolved, however old. The alerting rules
+ * are applied in memory because the retry interval depends on how overdue each
+ * dose is, which PostgREST cannot express in one filter.
+ */
+async function loadOpenDoses(db: Db, now: Date) {
   const dueBefore = new Date(now.getTime() + ALERT_POLICY.leadSeconds * 1000).toISOString();
-  const retryBefore = new Date(now.getTime() - ALERT_POLICY.repeatMinutes * 60_000).toISOString();
 
   const { data, error } = await db
     .from('doses')
-    .select('id, profile_id, due_at, alert_count, medications!inner(name, strength, form), profiles!inner(full_name)')
+    .select(
+      'id, profile_id, medication_id, due_at, alert_count, last_alert_at, medications!inner(name, strength, form), profiles!inner(full_name)',
+    )
     .in('status', ['pending', 'notified'])
     .lte('due_at', dueBefore)
-    .lt('alert_count', ALERT_POLICY.maxAlerts)
-    .or('last_alert_at.is.null,last_alert_at.lte.' + retryBefore)
     .order('due_at', { ascending: true })
-    .limit(200)
-    .returns<DueDose[]>();
+    .limit(1000)
+    .returns<OpenDose[]>();
 
   if (error) throw error;
+  return data ?? [];
+}
 
-  const doses = data ?? [];
-  if (doses.length === 0) return { alerted: 0, delivered: 0 };
+async function closeStaleDoses(db: Db, open: OpenDose[], now: Date) {
+  const shape = open.map((dose) => ({ id: dose.id, medicationId: dose.medication_id, dueAt: dose.due_at }));
 
-  const tokensByProfile = await loadDeviceTokens(db, [...new Set(doses.map((dose) => dose.profile_id))]);
+  const superseded = new Set(supersededIds(shape, now));
+  const abandoned = new Set(
+    shape.filter((dose) => !superseded.has(dose.id) && isAbandoned(dose, now)).map((dose) => dose.id),
+  );
+
+  const closing = [...superseded, ...abandoned];
+  if (closing.length > 0) {
+    const { error } = await db
+      .from('doses')
+      .update({ status: 'missed', resolved_at: now.toISOString() })
+      .in('id', closing);
+
+    if (error) throw error;
+  }
+
+  return {
+    superseded: superseded.size,
+    abandoned: abandoned.size,
+    remaining: open.filter((dose) => !superseded.has(dose.id) && !abandoned.has(dose.id)),
+  };
+}
+
+async function alertDueDoses(db: Db, open: OpenDose[], now: Date) {
+  const due = open.filter((dose) => shouldAlert({ dueAt: dose.due_at, lastAlertAt: dose.last_alert_at }, now));
+  if (due.length === 0) return { alerted: 0, delivered: 0 };
+
+  const tokensByProfile = await loadDeviceTokens(db, [...new Set(due.map((dose) => dose.profile_id))]);
 
   let delivered = 0;
   const staleTokens = new Set<string>();
 
-  for (const dose of doses) {
+  for (const dose of due) {
     const tokens = tokensByProfile.get(dose.profile_id) ?? [];
     const attempt = dose.alert_count + 1;
 
@@ -143,12 +151,12 @@ async function alertDueDoses(db: Db, now: Date) {
       result.staleTokens.forEach((token) => staleTokens.add(token));
     }
 
-    const { error: updateError } = await db
+    const { error } = await db
       .from('doses')
       .update({ status: 'notified', alert_count: attempt, last_alert_at: now.toISOString() })
       .eq('id', dose.id);
 
-    if (updateError) throw updateError;
+    if (error) throw error;
   }
 
   if (staleTokens.size > 0) {
@@ -158,7 +166,7 @@ async function alertDueDoses(db: Db, now: Date) {
       .in('token', [...staleTokens]);
   }
 
-  return { alerted: doses.length, delivered };
+  return { alerted: due.length, delivered };
 }
 
 async function loadDeviceTokens(db: Db, profileIds: string[]) {
@@ -179,7 +187,16 @@ async function loadDeviceTokens(db: Db, profileIds: string[]) {
   return map;
 }
 
-function doseDetail(dose: DueDose) {
+function doseDetail(dose: OpenDose) {
   const parts = [dose.medications.strength, dose.medications.form].filter(Boolean);
-  return parts.length > 0 ? `${dose.profiles.full_name} · ${parts.join(' ')}` : dose.profiles.full_name;
+  const overdueMinutes = Math.round((Date.now() - Date.parse(dose.due_at)) / 60_000);
+  const what = parts.length > 0 ? `${dose.profiles.full_name} · ${parts.join(' ')}` : dose.profiles.full_name;
+
+  return overdueMinutes > ALERT_POLICY.lateAfterMinutes ? `${what} · ${overdueLabel(overdueMinutes)} overdue` : what;
+}
+
+function overdueLabel(minutes: number) {
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours} h` : `${Math.floor(hours / 24)} d`;
 }
