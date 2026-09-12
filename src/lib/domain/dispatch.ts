@@ -16,7 +16,10 @@ type ScheduleContext = Schedule & {
   };
 };
 
-type OpenDose = Pick<Dose, 'id' | 'profile_id' | 'medication_id' | 'due_at' | 'alert_count' | 'last_alert_at'> & {
+type OpenDose = Pick<
+  Dose,
+  'id' | 'household_id' | 'profile_id' | 'medication_id' | 'due_at' | 'alert_count' | 'last_alert_at'
+> & {
   medications: Pick<Medication, 'name' | 'strength' | 'form'>;
   profiles: Pick<Profile, 'full_name'>;
 };
@@ -94,7 +97,7 @@ async function loadOpenDoses(db: Db, now: Date) {
   const { data, error } = await db
     .from('doses')
     .select(
-      'id, profile_id, medication_id, due_at, alert_count, last_alert_at, medications!inner(name, strength, form), profiles!doses_profile_id_fkey!inner(full_name)',
+      'id, household_id, profile_id, medication_id, due_at, alert_count, last_alert_at, medications!inner(name, strength, form), profiles!doses_profile_id_fkey!inner(full_name)',
     )
     .in('status', ['pending', 'notified'])
     .lte('due_at', dueBefore)
@@ -135,13 +138,18 @@ async function alertDueDoses(db: Db, open: OpenDose[], now: Date) {
   const due = open.filter((dose) => shouldAlert({ dueAt: dose.due_at, lastAlertAt: dose.last_alert_at }, now));
   if (due.length === 0) return { alerted: 0, delivered: 0 };
 
-  const tokensByProfile = await loadDeviceTokens(db, [...new Set(due.map((dose) => dose.profile_id))]);
+  const caregiversByHousehold = await loadCaregivers(db, [...new Set(due.map((dose) => dose.household_id))]);
+  const everyone = new Set(due.map((dose) => dose.profile_id));
+  caregiversByHousehold.forEach((ids) => ids.forEach((id) => everyone.add(id)));
+  const tokensByProfile = await loadDeviceTokens(db, [...everyone]);
 
   let delivered = 0;
   const staleTokens = new Set<string>();
 
   for (const dose of due) {
-    const tokens = tokensByProfile.get(dose.profile_id) ?? [];
+    // The person the dose is for, plus whoever actually administers it.
+    const recipients = new Set([dose.profile_id, ...(caregiversByHousehold.get(dose.household_id) ?? [])]);
+    const tokens = [...new Set([...recipients].flatMap((id) => tokensByProfile.get(id) ?? []))];
     const attempt = dose.alert_count + 1;
 
     if (tokens.length > 0) {
@@ -175,6 +183,22 @@ async function alertDueDoses(db: Db, open: OpenDose[], now: Date) {
   return { alerted: due.length, delivered };
 }
 
+async function loadCaregivers(db: Db, householdIds: string[]) {
+  const { data, error } = await db
+    .from('profiles')
+    .select('id, household_id')
+    .eq('receives_all_alerts', true)
+    .in('household_id', householdIds);
+
+  if (error) throw error;
+
+  const map = new Map<string, string[]>();
+  for (const profile of data ?? []) {
+    map.set(profile.household_id, [...(map.get(profile.household_id) ?? []), profile.id]);
+  }
+  return map;
+}
+
 async function loadDeviceTokens(db: Db, profileIds: string[]) {
   const { data, error } = await db
     .from('devices')
@@ -193,12 +217,15 @@ async function loadDeviceTokens(db: Db, profileIds: string[]) {
   return map;
 }
 
+/** The person is in the title, because the alert also reaches their caregiver. */
 function doseDetail(dose: OpenDose) {
   const parts = [dose.medications.strength, dose.medications.form].filter(Boolean);
+  const what = parts.length > 0 ? parts.join(' ') : 'Scheduled dose';
   const overdueMinutes = Math.round((Date.now() - Date.parse(dose.due_at)) / 60_000);
-  const what = parts.length > 0 ? `${dose.profiles.full_name} · ${parts.join(' ')}` : dose.profiles.full_name;
 
-  return overdueMinutes > ALERT_POLICY.lateAfterMinutes ? `${what} · ${overdueLabel(overdueMinutes)} overdue` : what;
+  return overdueMinutes > ALERT_POLICY.lateAfterMinutes
+    ? `${what} · ${overdueLabel(overdueMinutes)} overdue`
+    : what;
 }
 
 function overdueLabel(minutes: number) {

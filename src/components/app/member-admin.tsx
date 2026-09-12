@@ -1,8 +1,8 @@
 'use client';
 
 import { useActionState, useState } from 'react';
-import { Copy, UserPlus } from 'lucide-react';
-import { addMember, removeMember, setMemberRole, type FamilyState } from '@/app/actions/family';
+import { Copy, HeartHandshake, UserPlus } from 'lucide-react';
+import { addMember, removeMember, setCaregiver, setMemberRole, type FamilyState } from '@/app/actions/family';
 import { Button } from '@/components/ui/button';
 import { Field, FormError, FormNotice, Input, Select } from '@/components/ui/field';
 import { ACCENT_OPTIONS, AccentDot, Panel, PanelHeader } from '@/components/ui/panel';
@@ -101,20 +101,23 @@ export function MemberActions({
   profileId,
   role,
   isSelf,
+  receivesAllAlerts,
 }: {
   profileId: string;
   role: 'admin' | 'member';
   isSelf: boolean;
+  receivesAllAlerts: boolean;
 }) {
   const [roleState, roleAction, rolePending] = useActionState<FamilyState, FormData>(setMemberRole, {});
   const [removeState, removeAction, removePending] = useActionState<FamilyState, FormData>(removeMember, {});
+  const [feedState, feedAction, feedPending] = useActionState<FamilyState, FormData>(setCaregiver, {});
   const [confirming, setConfirming] = useState(false);
 
-  const error = roleState.error ?? removeState.error;
+  const error = roleState.error ?? removeState.error ?? feedState.error;
 
   return (
-    <div className="flex flex-col items-end gap-2">
-      <div className="flex items-center gap-2">
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
         <form action={roleAction}>
           <input type="hidden" name="profileId" value={profileId} />
           <Select
@@ -123,22 +126,40 @@ export function MemberActions({
             disabled={rolePending || isSelf}
             onChange={(event) => event.currentTarget.form?.requestSubmit()}
             className="h-9 w-28 text-xs"
+            aria-label="Role"
           >
             <option value="member">Member</option>
             <option value="admin">Admin</option>
           </Select>
         </form>
 
+        <form action={feedAction}>
+          <input type="hidden" name="profileId" value={profileId} />
+          <input type="hidden" name="enabled" value={receivesAllAlerts ? 'off' : 'on'} />
+          <Button
+            type="submit"
+            size="sm"
+            variant={receivesAllAlerts ? 'success' : 'secondary'}
+            disabled={feedPending}
+            title="Alerted for every member's doses"
+          >
+            <HeartHandshake className="size-4" />
+            {feedPending ? 'Saving…' : receivesAllAlerts ? 'Feeder' : 'Make feeder'}
+          </Button>
+        </form>
+
         {isSelf ? null : confirming ? (
-          <form action={removeAction} className="flex items-center gap-1.5">
-            <input type="hidden" name="profileId" value={profileId} />
-            <Button type="submit" size="sm" variant="danger" disabled={removePending}>
-              {removePending ? 'Removing…' : 'Confirm'}
-            </Button>
+          <span className="flex items-center gap-1.5">
+            <form action={removeAction}>
+              <input type="hidden" name="profileId" value={profileId} />
+              <Button type="submit" size="sm" variant="danger" disabled={removePending}>
+                {removePending ? 'Removing…' : 'Confirm'}
+              </Button>
+            </form>
             <Button type="button" size="sm" variant="ghost" onClick={() => setConfirming(false)}>
               Cancel
             </Button>
-          </form>
+          </span>
         ) : (
           <Button size="sm" variant="ghost" onClick={() => setConfirming(true)}>
             Remove

@@ -49,7 +49,8 @@ if (config) {
     if (data.kind !== 'dose-alert') return;
 
     const attempt = Number(data.attempt || '1');
-    const title = attempt > 1 ? `Still due: ${data.medication}` : `Time for ${data.medication}`;
+    const who = data.person ? ` for ${data.person}` : '';
+    const title = attempt > 1 ? `Still due: ${data.medication}${who}` : `${data.medication}${who}`;
 
     self.registration.showNotification(title, {
       body: data.detail || '',

@@ -3,6 +3,7 @@ import { requireSession } from '@/lib/domain/session';
 import { supabaseServer } from '@/lib/supabase/server';
 import { formatDateShort } from '@/lib/time/format';
 import { PushGate } from '@/components/app/push-gate';
+import { CaregiverToggle } from '@/components/app/caregiver-toggle';
 import {
   DeviceList,
   HouseholdForm,
@@ -53,6 +54,8 @@ export default async function SettingsPage() {
         <PushGate deviceLabel={session.profile.full_name} armed={devices.length > 0} />
         <DeviceList devices={devices} />
       </Panel>
+
+      <CaregiverToggle enabled={session.profile.receives_all_alerts} name={session.profile.full_name} />
 
       <ProfileForm fullName={session.profile.full_name} accent={session.profile.accent} />
 

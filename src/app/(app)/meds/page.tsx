@@ -6,16 +6,20 @@ import { supabaseServer } from '@/lib/supabase/server';
 import { describeSchedule, nextOccurrence } from '@/lib/domain/occurrences';
 import { formatDateShort, formatTime } from '@/lib/time/format';
 import { AccentDot, Badge, EmptyState, Panel } from '@/components/ui/panel';
+import { MemberTabs } from '@/components/app/member-tabs';
 import { buttonClass } from '@/components/ui/button';
 import type { MedicationWithSchedules, Profile } from '@/lib/db/types';
 
 export const metadata: Metadata = { title: 'Medications' };
 export const dynamic = 'force-dynamic';
 
-export default async function MedicationsPage() {
+export default async function MedicationsPage({ searchParams }: PageProps<'/meds'>) {
   const session = await requireSession();
   const supabase = await supabaseServer();
   const now = new Date();
+
+  const params = await searchParams;
+  const requested = typeof params.person === 'string' ? params.person : undefined;
 
   const [{ data: medications }, { data: people }] = await Promise.all([
     supabase
@@ -24,11 +28,17 @@ export default async function MedicationsPage() {
       .order('is_active', { ascending: false })
       .order('name', { ascending: true })
       .returns<MedicationWithSchedules[]>(),
-    supabase.from('profiles').select('id, full_name').returns<Pick<Profile, 'id' | 'full_name'>[]>(),
+    supabase
+      .from('profiles')
+      .select('id, full_name, accent')
+      .order('created_at')
+      .returns<Pick<Profile, 'id' | 'full_name' | 'accent'>[]>(),
   ]);
 
-  const nameById = new Map((people ?? []).map((person) => [person.id, person.full_name]));
-  const rows = medications ?? [];
+  const members = people ?? [];
+  const person = members.some((member) => member.id === requested) ? requested : undefined;
+  const nameById = new Map(members.map((member) => [member.id, member.full_name]));
+  const rows = (medications ?? []).filter((medication) => !person || medication.profile_id === person);
 
   return (
     <div className="space-y-6">
@@ -43,9 +53,11 @@ export default async function MedicationsPage() {
         </Link>
       </header>
 
+      <MemberTabs members={members} selected={person ?? null} />
+
       {rows.length === 0 ? (
         <EmptyState
-          title="No medications yet"
+          title={person ? "Nothing for this person yet" : "No medications yet"}
           description="Add the first one and Med Alert will start ringing at the times you set."
           action={
             <Link href="/meds/new" className={buttonClass('primary', 'sm')}>

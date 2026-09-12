@@ -49,7 +49,7 @@ export async function sendAlert(tokens: string[], payload: AlertPayload): Promis
       headers: { 'apns-priority': '10', 'apns-push-type': 'alert' },
       payload: {
         aps: {
-          alert: { title: `Time for ${payload.medication}`, body: payload.detail },
+          alert: { title: `${payload.medication} for ${payload.person}`, body: payload.detail },
           sound: 'default',
           badge: 1,
         },

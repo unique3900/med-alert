@@ -177,3 +177,38 @@ export async function changePassword(_state: FamilyState, formData: FormData): P
 
   return { notice: 'Password changed.' };
 }
+
+const caregiverSchema = z.object({
+  enabled: z.enum(['on', 'off']),
+  profileId: z.uuid().optional(),
+});
+
+/** Whether a person is alerted for every member's doses, not only their own. */
+export async function setCaregiver(_state: FamilyState, formData: FormData): Promise<FamilyState> {
+  const session = await requireSession();
+
+  const parsed = caregiverSchema.safeParse({
+    enabled: formData.get('enabled'),
+    profileId: formData.get('profileId') ?? undefined,
+  });
+  if (!parsed.success) return { error: 'Could not change that setting.' };
+
+  const target = parsed.data.profileId ?? session.userId;
+  if (target !== session.userId && !session.isAdmin) {
+    return { error: 'Only an admin can change this for someone else.' };
+  }
+
+  const supabase = target === session.userId ? await supabaseServer() : supabaseAdmin();
+  const { error } = await supabase
+    .from('profiles')
+    .update({ receives_all_alerts: parsed.data.enabled === 'on' })
+    .eq('id', target)
+    .eq('household_id', session.household.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath('/settings');
+  revalidatePath('/family');
+  revalidatePath('/today');
+  return { notice: parsed.data.enabled === 'on' ? 'You will be alerted for everyone.' : 'Household alerts turned off.' };
+}

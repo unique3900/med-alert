@@ -15,6 +15,7 @@ export type Profile = {
   full_name: string;
   role: MemberRole;
   accent: string;
+  receives_all_alerts: boolean;
   created_at: string;
   updated_at: string;
 };
