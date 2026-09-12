@@ -20,14 +20,20 @@ export default async function TodayPage() {
   const supabase = await supabaseServer();
   const now = new Date();
 
-  const [doses, owed, adherence, { count: memberCount }] = await Promise.all([
+  const [doses, owed, adherence, { count: memberCount }, { count: deviceCount }] = await Promise.all([
     dosesForDay(supabase, { timezone: session.timezone, reference: now }),
     outstandingBefore(supabase, { timezone: session.timezone, reference: now }),
     recentAdherence(supabase, { days: 7 }),
     supabase.from('profiles').select('id', { count: 'exact', head: true }),
+    supabase.from('devices').select('id', { count: 'exact', head: true }).is('revoked_at', null),
   ]);
 
   const showPerson = (memberCount ?? 1) > 1;
+
+  // Alarms go to the devices of whoever the medication is *for*. An account with
+  // doses and no armed phone is the one failure the app cannot detect at run time.
+  const ownDoses = doses.filter((dose) => dose.profile_id === session.userId).length;
+  const unreachable = ownDoses > 0 && (deviceCount ?? 0) === 0;
   const today = summarize(doses, now);
 
   const upcoming = doses.find((dose) => doseOutcome(dose, now) === 'upcoming');
@@ -43,6 +49,23 @@ export default async function TodayPage() {
       </header>
 
       <PushGate deviceLabel={session.profile.full_name} />
+
+      {unreachable ? (
+        <div className="panel flex items-start gap-3.5 border-warn/40 p-4">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-warn-soft text-warn">
+            <AlertTriangle className="size-5" />
+          </span>
+          <div className="space-y-1 text-sm">
+            <p className="font-medium">No phone is armed for this account</p>
+            <p className="text-ink-muted">
+              {ownDoses === 1 ? 'A dose is' : `${ownDoses} doses are`} scheduled for{' '}
+              {session.profile.full_name}, but no device is registered, so nothing will ring. Open Med Alert on
+              that phone, sign in as this account, and allow notifications — each person is alerted on their own
+              devices.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       {owed.length > 0 ? (
         <section className="space-y-3">

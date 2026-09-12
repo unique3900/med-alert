@@ -34,17 +34,32 @@ export function DoseList({
 }) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ id: string; message: string } | null>(null);
   const [, startTransition] = useTransition();
 
   async function act(id: string, action: 'taken' | 'skipped') {
     setBusyId(id);
-    await fetch(`/api/doses/${id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
-    }).catch(() => {});
-    setBusyId(null);
-    startTransition(() => router.refresh());
+    setFailure(null);
+
+    try {
+      const response = await fetch(`/api/doses/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        setFailure({ id, message: body.error ?? 'Could not update this dose.' });
+        return;
+      }
+
+      startTransition(() => router.refresh());
+    } catch {
+      setFailure({ id, message: 'No connection. The dose has not been recorded.' });
+    } finally {
+      setBusyId(null);
+    }
   }
 
   if (doses.length === 0) {
@@ -62,7 +77,7 @@ export function DoseList({
           <li
             key={dose.id}
             className={cn(
-              'panel flex items-center gap-3.5 p-3.5 transition-opacity',
+              'panel flex flex-wrap items-center gap-3.5 p-3.5 transition-opacity',
               settled && 'opacity-65',
               dose.outcome === 'overdue' && 'border-danger/40',
             )}
@@ -129,6 +144,12 @@ export function DoseList({
                 {outcome.label}
               </Badge>
             )}
+
+            {failure?.id === dose.id ? (
+              <p className="basis-full text-xs text-danger" role="alert">
+                {failure.message}
+              </p>
+            ) : null}
           </li>
         );
       })}

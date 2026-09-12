@@ -18,6 +18,7 @@ export function AlarmCenter() {
   const router = useRouter();
   const [queue, setQueue] = useState<ActiveAlert[]>([]);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const current = queue[0];
 
   useEffect(() => {
@@ -74,16 +75,26 @@ export function AlarmCenter() {
     async (action: 'taken' | 'snooze') => {
       if (!current) return;
       setBusy(true);
+      setError(null);
       stopAlarm();
 
-      await fetch(`/api/doses/${current.doseId}`, {
+      const response = await fetch(`/api/doses/${current.doseId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
-      }).catch(() => {});
+      }).catch(() => null);
+
+      setBusy(false);
+
+      // Never dismiss an alarm that was not actually recorded.
+      if (!response?.ok) {
+        const body = await response?.json().catch(() => ({}));
+        setError(body?.error ?? 'Could not record this dose. It is still due.');
+        startAlarm();
+        return;
+      }
 
       setQueue((previous) => previous.slice(1));
-      setBusy(false);
       router.refresh();
     },
     [current, router],
@@ -113,6 +124,12 @@ export function AlarmCenter() {
           Snooze 10 minutes
         </Button>
       </div>
+
+      {error ? (
+        <p className="max-w-xs rounded-xl bg-danger-soft px-3.5 py-2.5 text-center text-sm text-danger" role="alert">
+          {error}
+        </p>
+      ) : null}
 
       {queue.length > 1 ? (
         <p className="text-xs text-ink-muted">{queue.length - 1} more waiting</p>

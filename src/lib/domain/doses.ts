@@ -87,25 +87,41 @@ export async function resolveDose(
     if (readError) throw readError;
 
     const base = Math.max(now.getTime(), Date.parse(current.due_at));
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('doses')
       .update({
         due_at: new Date(base + SNOOZE_MINUTES * 60_000).toISOString(),
         status: 'pending',
         last_alert_at: null,
       })
-      .eq('id', doseId);
+      .eq('id', doseId)
+      .select('id');
 
     if (error) throw error;
+    assertChanged(data);
     return;
   }
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('doses')
     .update({ status: action, resolved_at: now.toISOString(), resolved_by: actorId })
-    .eq('id', doseId);
+    .eq('id', doseId)
+    .select('id');
 
   if (error) throw error;
+  assertChanged(data);
+}
+
+/**
+ * A row-level security policy that rejects the update does not raise - it just
+ * matches nothing. Without this check the caller reports success and the dose
+ * silently stays open, which is the worst possible failure for a medication
+ * reminder.
+ */
+function assertChanged(rows: { id: string }[] | null) {
+  if (!rows || rows.length === 0) {
+    throw new Error('You can only change doses for yourself, unless you are the household admin.');
+  }
 }
 
 async function dosesBetween(
