@@ -88,7 +88,7 @@ async function loadOpenDoses(db: Db, now: Date) {
   const { data, error } = await db
     .from('doses')
     .select(
-      'id, profile_id, medication_id, due_at, alert_count, last_alert_at, medications!inner(name, strength, form), profiles!inner(full_name)',
+      'id, profile_id, medication_id, due_at, alert_count, last_alert_at, medications!inner(name, strength, form), profiles!doses_profile_id_fkey!inner(full_name)',
     )
     .in('status', ['pending', 'notified'])
     .lte('due_at', dueBefore)

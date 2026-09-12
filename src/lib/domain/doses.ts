@@ -11,8 +11,10 @@ export type DoseAction = 'taken' | 'skipped' | 'snooze';
 /** What a dose ended up being, once lateness is folded into the raw status. */
 export type DoseOutcome = 'upcoming' | 'overdue' | 'taken' | 'late' | 'skipped' | 'missed';
 
+// doses points at profiles twice - profile_id and resolved_by - so the foreign
+// key has to be named or PostgREST refuses the embed as ambiguous (PGRST201).
 const DOSE_SELECT =
-  '*, medications!inner(id, name, strength, form, instructions, accent), profiles!inner(id, full_name, accent)';
+  '*, medications!inner(id, name, strength, form, instructions, accent), profiles!doses_profile_id_fkey!inner(id, full_name, accent)';
 
 type OutcomeInput = Pick<Dose, 'status' | 'due_at' | 'resolved_at'>;
 
